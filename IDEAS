@@ -1,0 +1,4 @@
+1. Allow user to specify the maximum amount area an over-approximation adds (either in absolute or relative terms)
+2. If an over-approximation adds more than that amount an area, add appropiate set splits
+3. Add cheap better over-approximations to non-linear functions by adding a line tangent to the average slope.
+4. Keep track of added over-approximation sets, and propogate those outwards too. Now, we can use these to check if a counter-example is from an over-approximated set.
