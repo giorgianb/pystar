@@ -6,7 +6,7 @@ from pystar.types import LinearStarSet, LinearStarSetBatch
 class Linear(torch.nn.Module):
     def __init__(self, in_features: int, out_features: int, bias: bool = True, device=None, dtype=None):
         super().__init__()
-        self.W = torch.nn.Parameter(torch.randn((out_features, in_features), device=device))
+        self.W = torch.nn.Parameter(torch.randn((out_features, in_features), device=device, dtype=dtype))
 
         self.bias = bias
         if bias:
