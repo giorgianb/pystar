@@ -3,7 +3,7 @@ import torch
 from pystar.h_polytope import HPolytope
 
 class LinearStarSet:
-    def __init__(self: LinearStarSet, c: torch.Tensor, V: torch.Tensor, H: HPolytope) -> None:
+    def __init__(self: LinearStarSet, c: torch.Tensor, V: torch.Tensor, H: HPolytope, dtype=None) -> None:
         """
         Represents a linear star set.
 
@@ -28,13 +28,24 @@ class LinearStarSet:
         A_ub has dimensions [n_constraints, n_generators] 
         b_ub has dimensions [n_constraints]
         """
-        self.c = c
-        self.V = V
+        if dtype is None:
+            dtype = c.dtype
+        self.c = c.to(dtype)
+        self.V = V.to(dtype)
         self.H = H
 
     @property
-    def shape(self):
+    def dtype(self: LinearStarSet):
+        return self.c.dtype
+
+    @property
+    def shape(self: LinearStarSet):
         return self.c.shape
+
+    def to(self: LinearStarSet, dtype) -> LinearStarSet:
+        cp = self.c.to(dtype)
+        Vp = self.c.to(dtype)
+        return LinearStarSet(cp, Vp, H.clone())
 
     @property
     def n_generators(self):
