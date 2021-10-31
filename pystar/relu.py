@@ -1,29 +1,29 @@
 from __future__ import annotations
 import torch
 from pystar.types import LinearStarSetBatch
-from pystar.linear_star_set import LinearStarSet
+from pystar.types import LinearStarSet, HPolytope
 from itertools import product
 
-class ReLU:
+class ReLU(torch.nn.Module):
     def __init__(self: ReLU, inplace: bool=False, overapprox: bool=False, overapprox_dims: int=1):
+        super().__init__()
         self.inplace = inplace
         self.overapprox = overapprox
         self.overapprox_dims = overapprox_dims
         if self.overapprox:
-            self.process = ReLU._overapprox
+            self.process = self._overapprox
         else:
-            self.process = ReLU._exact
+            self.process = self._exact
 
-    @staticmethod
-    def _overapprox(s: LinearStarSet):
+    def _overapprox(self: ReLU, s: LinearStarSet):
         for dim in product(*map(range, s.shape)):
-            v = torch.zeros(s.shape)
+            v = torch.zeros(s.shape, dtype=s.dtype)
             v[dim] = -1
             res = s.maximize(v)
             l = res[dim]
             if l >= 0:
                 continue
-            res = s.maximize(v)
+            res = s.maximize(-v)
             u = res[dim]
 
             Vi = s.V[dim] # Get the generator for the dim
@@ -41,7 +41,7 @@ class ReLU:
 
             if u > 0:
                 d = u/(u - l)
-                ei = torch.zeros(s.shape)
+                ei = torch.zeros(s.shape, dtype=s.dtype)
                 ei[dim] = 1
 
                 # in-place handling was already done
@@ -49,14 +49,14 @@ class ReLU:
                 # don't want to do it in-place
                 s.V = torch.cat((s.V, ei.unsqueeze(-1)), -1)
                 pad = torch.zeros(s.H.A_ub.shape[0], 1)
-                s.H.A_ub = torch.cat((A_ub, pad), axis=1)
-                A_ub = torch.zeros(3, s.H.A_ub.shape[1])
+                s.H.A_ub = torch.cat((s.H.A_ub, pad), axis=1)
+                A_ub = torch.zeros(3, s.H.A_ub.shape[1], dtype=s.H.A_ub.dtype)
                 A_ub[0, -1] = -1  # First contraints: alpha_i >= 0
                 A_ub[1, :-1] = Vi
                 A_ub[1, -1] = -1
                 A_ub[2, :-1] = -d*Vi
                 A_ub[2, -1] = 1
-                b_ub = torch.Tensor([0, -c, d*(ci - l)])
+                b_ub = torch.tensor([0, -ci, d*(ci - l)], dtype=s.H.b_ub.dtype)
                 H = HPolytope(A_ub, b_ub)
                 s.H &= H
         return [s]
@@ -74,19 +74,17 @@ class ReLU:
         res = []
         for s in input:
             ss = self.process(s)
-            res.append(ss)
+            res.extend(ss)
         return res
 
-    @staticmethod
-    def _exact(s: LinearStarSet):
+    def _exact(self: ReLU, s: LinearStarSet):
         slp = [s]
         for dim in product(*map(range, s.shape)):
-            slp = ReLU._step(slp, dim)
+            slp = self._step(slp, dim)
 
         return slp
 
-    @staticmethod
-    def _step(sl: LinearStarSetBatch, dim: tuple[int]):
+    def _step(self: LinearStarSet, sl: LinearStarSetBatch, dim: tuple[int]):
         slp = []
         for s in sl:
             v = torch.zeros(s.shape)
