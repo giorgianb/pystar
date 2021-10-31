@@ -87,7 +87,7 @@ class ReLU(torch.nn.Module):
     def _step(self: LinearStarSet, sl: LinearStarSetBatch, dim: tuple[int]):
         slp = []
         for s in sl:
-            v = torch.zeros(s.shape)
+            v = torch.zeros(s.shape, dtype=s.dtype)
             v[dim] = -1
             res = s.maximize(v)
             if res[dim] >= 0:
@@ -97,24 +97,24 @@ class ReLU(torch.nn.Module):
                     slp.append(LinearStarSet(s.c, s.V, s.H.clone()))
             else:
                 # First case: x_dim == 0
-                A_ub = torch.zeros((1, *s.shape))
-                b_ub = torch.zeros((1, 1))
-                A_ub[0, dim] = -1
+                A_ub = torch.zeros((1, *s.shape), dtype=s.H.A_ub.dtype)
+                b_ub = torch.tensor([0], dtype=s.H.b_ub.dtype)
+                A_ub[0, dim] = 1
                 A_ub = torch.flatten(A_ub, start_dim=1, end_dim=-1)
                 s1 = s & HPolytope(A_ub, b_ub) # Restrict domain to x_i <= 0
 
                 Vp = s.V.clone()
                 cp = s.c.clone()
                 Vp[dim] = 0
-                c[dim] = 0
+                cp[dim] = 0
                 s1 = LinearStarSet(cp, Vp, s1.H)
                 slp.append(s1)
 
                 # Second case: x_dim > 0
                 res = s.maximize(-v)
                 if res[dim] > 0:
-                    A_ub = torch.zeros((1, *s.shape))
-                    b_ub = torch.zeros((1, 1))
+                    A_ub = torch.zeros((1, *s.shape), dtype=s.H.A_ub.dtype)
+                    b_ub = torch.tensor([0], dtype=s.H.b_ub.dtype)
                     A_ub[0, dim] = -1
                     if self.inplace:
                         s &= HPolytope(A_ub, b_ub)
