@@ -1,5 +1,7 @@
 from __future__ import annotations
 from scipy.optimize import linprog
+import torch
+from icecream import ic
 
 class HPolytope:
     def __init__(self: HPolytope, A_ub: torch.Tensor, b_ub: torch.Tensor) -> None:
@@ -13,16 +15,22 @@ class HPolytope:
 
         return HPolytope(A_ub, b_ub)
 
-    def __iand__(self: HPolytope, H: HPolytope) -> None:
+    def __iand__(self: HPolytope, H: HPolytope) -> HPolytope:
         """Perform in-place intersection with another H-Polytope"""
-        self.A_ub = torch.cat((self.A_ub, other.A_ub), dim=0)
-        self.b_ub = torch.cat((self.b_ub, other.b_ub), dim=0)
+        self.A_ub = torch.cat((self.A_ub, H.A_ub), dim=0)
+        self.b_ub = torch.cat((self.b_ub, H.b_ub), dim=0)
+
         return self
 
-    def __matmul__(self: HPolytope, v: torch.Tensor) -> torch.Tensor:
+    def maximize(self: HPolytope, v: torch.Tensor) -> torch.Tensor:
         """Maximize along the direction specified by 'v'."""
         try:
-            res = linprog(-1 * v, A_ub=self.A_ub, b_ub=self.b_ub, bounds=(-torch.inf, torch.inf))
+            with torch.no_grad():
+                res = linprog(
+                        -1 * v.detach().numpy(), 
+                        A_ub=self.A_ub.detach().numpy(), 
+                        b_ub=self.b_ub.detach().numpy(), 
+                        bounds=(-torch.inf, torch.inf))
             assert res.success
         except AssertionError:
             print("[HPolytope]")
@@ -31,7 +39,7 @@ class HPolytope:
             ic(self.b_ub)
             raise
 
-        return res.x
+        return torch.tensor(res.x)
 
     def clone(self: HPolytope) -> HPolytope:
         """
