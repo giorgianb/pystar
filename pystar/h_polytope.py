@@ -8,6 +8,14 @@ class HPolytope:
         self.A_ub = A_ub
         self.b_ub = b_ub
 
+    @property
+    def nconstraints(self):
+        return self.A_ub.shape[0]
+
+    @property
+    def shape(self):
+        return self.A_ub.shape[1:]
+
     def __and__(self: HPolytope, other: HPolytope) -> HPolytope:
         """Perform intersection with another H-Polytope"""
         A_ub = torch.cat((self.A_ub, other.A_ub), dim=0)
