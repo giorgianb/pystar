@@ -83,10 +83,13 @@ class LinearStarSet:
             domain_max = self.H.maximize(domain_dir)
             range_max = self.c + self.V @ domain_max
         except ValueError:
+            from icecream import ic
             print("[Linear Star Set]")
             ic(self.V.shape)
             ic(self.c.shape)
             ic(v.shape)
+            ic(self.H.A_ub.shape)
+            ic(self.H.b_ub.shape)
             raise
 
         return range_max
