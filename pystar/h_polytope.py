@@ -32,20 +32,15 @@ class HPolytope:
 
     def maximize(self: HPolytope, v: torch.Tensor) -> torch.Tensor:
         """Maximize along the direction specified by 'v'."""
-        try:
-            with torch.no_grad():
-                res = linprog(
-                        -1 * v.detach().numpy(), 
-                        A_ub=self.A_ub.detach().numpy(), 
-                        b_ub=self.b_ub.detach().numpy(), 
-                        bounds=(-torch.inf, torch.inf))
-            assert res.success
-        except AssertionError:
-            print("[HPolytope]")
-            ic(v)
-            ic(self.A_ub)
-            ic(self.b_ub)
-            raise
+        with torch.no_grad():
+            res = linprog(
+                    -1 * v.detach().numpy(), 
+                    A_ub=self.A_ub.detach().numpy(), 
+                    b_ub=self.b_ub.detach().numpy(), 
+                    bounds=(-torch.inf, torch.inf))
+
+        if not res.success:
+            return None
 
         return torch.tensor(res.x)
 
