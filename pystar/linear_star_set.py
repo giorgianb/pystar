@@ -45,7 +45,10 @@ class LinearStarSet:
     def to(self: LinearStarSet, dtype) -> LinearStarSet:
         cp = self.c.to(dtype)
         Vp = self.c.to(dtype)
-        return LinearStarSet(cp, Vp, H.clone())
+        return LinearStarSet(cp, Vp, self.H.clone())
+
+    def clone(self: LinearStarSet):
+        return LinearStarSet(self.c.clone(), self.V.clone(), self.H.clone())
 
     @property
     def n_generators(self):
@@ -78,18 +81,12 @@ class LinearStarSet:
         Strictly speaking, this maximizes the function v @ x, where x is a coordinate
         within the star set.
         """
-        try:
-            domain_dir = torch.flatten(v) @ torch.flatten(self.V, end_dim=-2)
-            domain_max = self.H.maximize(domain_dir)
-            range_max = self.c + self.V @ domain_max
-        except ValueError:
-            from icecream import ic
-            print("[Linear Star Set]")
-            ic(self.V.shape)
-            ic(self.c.shape)
-            ic(v.shape)
-            ic(self.H.A_ub.shape)
-            ic(self.H.b_ub.shape)
-            raise
+        domain_dir = torch.flatten(v) @ torch.flatten(self.V, end_dim=-2)
+        domain_max = self.H.maximize(domain_dir)
+
+        if domain_max is None:
+            return None
+
+        range_max = self.c + self.V @ domain_max
 
         return range_max
