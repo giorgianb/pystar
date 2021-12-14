@@ -37,12 +37,13 @@ class HPolytope:
                     -1 * v.detach().numpy(), 
                     A_ub=self.A_ub.detach().numpy(), 
                     b_ub=self.b_ub.detach().numpy(), 
-                    bounds=(-torch.inf, torch.inf))
+                    bounds=(-torch.inf, torch.inf)
+                    )
 
         if not res.success:
             return None
 
-        return torch.tensor(res.x)
+        return torch.tensor(res.x, dtype=v.dtype)
 
     def clone(self: HPolytope) -> HPolytope:
         """
