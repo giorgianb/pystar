@@ -14,7 +14,7 @@ class Sigmoid(torch.nn.Module):
         super().__init__()
         self.process = self._overapprox
 
-    def _overapprox(self: ReLU, s: LinearStarSet):
+    def _overapprox(self: Sigmoid, s: LinearStarSet):
         s0 = s
         s = LinearStarSet(s.c.clone(), s.V.clone(), s.H.clone())
         for dim in product(*map(range, s.shape)):
