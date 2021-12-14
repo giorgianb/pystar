@@ -10,7 +10,7 @@ class Linear(torch.nn.Module):
 
         self.bias = bias
         if bias:
-            self.b = torch.nn.Parameter(torch.randn(out_features, device=device))
+            self.b = torch.nn.Parameter(torch.randn(out_features, device=device, dtype=dtype))
 
     def _tensor_forward(self, input: torch.Tensor):
         ret = input @ self.W.T
