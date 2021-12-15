@@ -27,10 +27,8 @@ s = pt.LinearStarSet(c, V, H)
 ic(c.shape)
 ic(V.shape)
 
-mp2d = pnn.MaxPool2d(2, 2, overapprox=True)
-out = mp2d([s])[0]
-ic(out.c)
-ic(out.V)
-ic(out.H.A_ub)
-ic(out.H.b_ub)
-
+mp2d = pnn.MaxPool2d(2, 2)
+out = mp2d([s])
+for o in out:
+    print('-' * 10)
+    ic(o.c)
