@@ -3,8 +3,8 @@ import torch
 from pystar.types import LinearStarSetBatch
 from pystar.types import LinearStarSet, HPolytope
 from itertools import product
-from icecream import ic
 import torch.functional as F
+from icecream import ic
 
 def compute_maxpool_shape(input_dim, kernel_size, stride, dilation):
     x = (input_dim[0] - dilation[0] * (kernel_size[0] - 1) - 1)//stride[0] + 1
@@ -13,15 +13,13 @@ def compute_maxpool_shape(input_dim, kernel_size, stride, dilation):
     return (x, y)
 
 class MaxPool2d(torch.nn.Module):
-    def __init__(self: MaxPool2d, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False, overapprox=False):
+    def __init__(self: MaxPool2d, kernel_size, stride=None, padding=0, dilation=1, return_indices=False, ceil_mode=False, overapprox=False) -> None:
         # TODO: support the remaining parameters
         super().__init__()
         if return_indices:
             raise NotImplementedError('MaxPool2d does not support returning indices.')
         if ceil_mode:
             raise NotImplementedError('MaxPool2d does not yet support ceil_mode=True')
-        if not overapprox:
-            raise NotImplementedError('MaxPool2d does not yet support exact analysis.')
 
         self.kernel_size = kernel_size if type(kernel_size) is tuple else (kernel_size, kernel_size)
         self.stride = stride if type(stride) is tuple else (stride, stride)
@@ -36,6 +34,7 @@ class MaxPool2d(torch.nn.Module):
     def _get_max_candidates(self: MaxPool2d, s: LinearStarSet):
         all_max_candidates = []
         all_max_values = []
+        all_constraints = []
         # number of new predicates we will need to add
         n_new_predicates = 0
         # number of new constraints we will need
@@ -52,6 +51,7 @@ class MaxPool2d(torch.nn.Module):
 
             channel_max_candidates = []
             channel_max_values = []
+            channel_constraints = []
             # TODO: deal with padding
             # TODO: this part is extremely inefficient
             # we need a faster way of finding max candidates
@@ -63,10 +63,12 @@ class MaxPool2d(torch.nn.Module):
             for i in range(0, max_i, sx):
                 row_max_candidates = []
                 row_max_values = []
+                row_constraints = []
                 # j represents the x-coordinate of the top-left corner of the pooling window
                 for j in range(0, max_j, sy):
                     max_candidates = []
                     max_values = []
+                    constraints = []
                     # (ki, kj) is our max candidate
                     for ki in range(0, kx * dx, dx):
                         for kj in range(0, ky * dy, dy):
@@ -100,9 +102,11 @@ class MaxPool2d(torch.nn.Module):
                                 # remember the current pixel as a max candidate
                                 max_candidates.append((i + ki, j + kj))
                                 max_values.append(res[dim + (i + ki, j + kj)])
+                                constraints.append(H)
 
                     row_max_candidates.append(max_candidates)
                     row_max_values.append(max_values)
+                    row_constraints.append(constraints)
 
                     assert len(max_candidates) >= 1
                     if len(max_candidates) > 1:
@@ -110,13 +114,15 @@ class MaxPool2d(torch.nn.Module):
                         n_new_constraints += len(max_candidates) + 1
                 channel_max_candidates.append(row_max_candidates)
                 channel_max_values.append(row_max_values)
+                channel_constraints.append(row_constraints)
 
             all_max_candidates.append(channel_max_candidates)
             all_max_values.append(channel_max_values)
+            all_constraints.append(channel_constraints)
 
-            return all_max_candidates, all_max_values, n_new_predicates, n_new_constraints
+        return all_max_candidates, all_max_values, all_constraints, n_new_predicates, n_new_constraints
 
-    def _overapprox(self: MaxPool2d, s: LinearStarSet):
+    def _exact(self: MaxPool2d, s: LinearStarSet):
         padding = self.padding
         if padding > 0:
             n_rows, n_columns, n_generators = s.V.shape[-3:]
@@ -133,25 +139,94 @@ class MaxPool2d(torch.nn.Module):
             V = torch.cat((p, s.V, p), axis=-3)
             # pad generators above
             p = torch.ones(
-                    s.V.shape[:-3] + (n_rows + 2*padding, padding, n_generator), 
+                    s.V.shape[:-3] + (n_rows + 2*padding, padding, n_generators), 
+                    dtype=s.dtype
+            )
+            V = torch.cat((p, s.V, p), axis=-2)
+            s = LinearStarSet(c, V, s.H.clone())
+        
+
+        all_max_candidates, _, all_constraints, n_new_predicates, n_new_constraints = self._get_max_candidates(s)
+        
+        hp, wp = compute_maxpool_shape(s.shape[-2:], self.kernel_size, self.stride, self.dilation)
+
+        cp = torch.zeros(s.shape[:-2] + (wp, hp), dtype=s.c.dtype)
+        Vp = torch.zeros(s.shape[:-2] + (wp, hp, s.n_generators), dtype=s.V.dtype)
+
+        slp = [LinearStarSet(cp, Vp, s.H.clone())]
+        for i, dim in enumerate(product(*map(range, s.shape[:-2]))):
+            # (pi, pj) is the coordinate in the unpooled image
+            for pi in range(hp):
+                for pj in range(wp):
+                    slp = self._step(s, slp, all_max_candidates[i], all_constraints[i], dim, pi, pj)
+        
+        return slp
+
+    def _step(self: MaxPool2d, img: LinearStarSet, slp: LinearStarSetBatch, max_candidates, constraints, dim, pi, pj) -> LinearStarSetBatch:
+        candidates = max_candidates[pi][pj]
+        slpp = []
+        for s in slp:
+            if len(candidates) == 1:
+                (xp, yp), H = candidates[0], constraints[pi][pj][0]
+                s.H &= H
+                s.c[dim + (pi, pj)] = img.c[dim + (xp, yp)]
+                s.V[dim + (pi, pj)] = img.V[dim + (xp, yp)]
+                slpp.append(s)
+            else:
+                for (xp, yp), H in zip(candidates, constraints[pi][pj]):
+                    sp = s.clone()
+
+                    sp.c[dim + (pi, pj)] = img.c[dim + (xp, yp)]
+                    sp.V[dim + (pi, pj)] = img.V[dim + (xp, yp)]
+                    sp.H &= H
+                    v = torch.ones(sp.shape, dtype=sp.dtype)
+
+                    # check to see if we still have a feasible solution
+                    res = s.maximize(v)
+                    if res is not None:
+                        slpp.append(sp)
+
+        return slpp
+
+
+    def _overapprox(self: MaxPool2d, s: LinearStarSet) -> LinearStarSetBatch:
+        padding = self.padding
+        if padding > 0:
+            n_rows, n_columns, n_generators = s.V.shape[-3:]
+            # pad anchor below
+            p = -torch.inf * torch.ones(s.shape[:-2] + (padding, n_columns), dtype=s.dtype)
+            c = torch.cat((p1, s.c, p1), axis=-2)
+
+            # pad anchor above
+            p = torch.ones(s.shape[:-2], + (n_rows + 2*padding, padding), dtype=s.dtype)
+            c = torch.cat((p2, c, p2), axis=-1)
+
+            # pad generators below
+            p = torch.ones(s.V.shape[:-3] + (padding, n_columns, n_generators), dtype=s.dtype)
+            V = torch.cat((p, s.V, p), axis=-3)
+            # pad generators above
+            p = torch.ones(
+                    s.V.shape[:-3] + (n_rows + 2*padding, padding, n_generators), 
                     dtype=s.dtype
             )
             V = torch.cat((p, s.V, p), axis=-2)
             s = LinearStarSet(c, V, s.H.clone())
 
-        all_max_candidates, all_max_values, n_new_predicates, n_new_constraints = self._get_max_candidates(s)
+        all_max_candidates, all_max_values, _, n_new_predicates, n_new_constraints = self._get_max_candidates(s)
         
-        wp, hp = compute_maxpool_shape(s.shape[:2], self.kernel_size, self.stride, self.dilation)
-        n_old_predicates = s.V.shape[-1]
+        hp, wp = compute_maxpool_shape(s.shape[-2:], self.kernel_size, self.stride, self.dilation)
+        n_old_generators = s.n_generators
 
         # new anchor image
         cp = torch.zeros(s.shape[:-2] + (wp, hp), dtype=s.c.dtype)
 
         # generators that follow the old constraints
-        Vp = torch.zeros(s.shape[:-2] + (wp, hp, n_old_predicates), dtype=s.V.dtype)
+        Vp = torch.zeros(s.shape[:-2] + (wp, hp, n_old_generators), dtype=s.V.dtype)
 
         # generators for which we add new constraints
         Vpp = torch.zeros(s.shape[:-2] + (wp, hp, n_new_predicates), dtype=s.V.dtype)
+        ic(Vp.shape)
+        ic(Vpp.shape)
 
         # new predicates added for max-pooling
         A_ub = torch.zeros((n_new_constraints, n_new_predicates + s.H.A_ub.shape[1]),
@@ -161,13 +236,6 @@ class MaxPool2d(torch.nn.Module):
         p_counter = 0 # index of unused predicate
         c_counter = 0 # index of unused constraint row
 
-        max_i = s.shape[-2] - (self.kernel_size[0] * self.dilation[0] - 1)
-        max_j = s.shape[-1] - (self.kernel_size[1] * self.dilation[1] - 1)
-
-        kx, ky = self.kernel_size
-        sx, sy = self.stride
-        dx, dy = self.dilation
-
         for i, dim in enumerate(product(*map(range, s.shape[:-2]))):
             ci = s.c[dim]
             Vi = s.V[dim]
@@ -175,12 +243,9 @@ class MaxPool2d(torch.nn.Module):
             mci = all_max_candidates[i]
             mvi = all_max_values[i]
 
-            # pi is row coordinate in pooled image
-            # i is row coordinate in unpooled image
-            for pi, i in enumerate(range(0, max_i, sx)):
-                # pj is column coordinate in pooled image
-                # j is column coordinate in unpooled image
-                for pj, j in enumerate(range(0, max_j, sy)):
+            # (pi, pj) for the pixel in the pooled image
+            for pi in range(hp):
+                for pj in range(wp):
                     max_candidates = mci[pi][pj]
                     max_values = mvi[pi][pj]
                     # If we only have a single max candidate, the 
@@ -195,7 +260,7 @@ class MaxPool2d(torch.nn.Module):
                         # greater than all of the max canidates
                         p = p_counter
                         p_counter += 1
-                        Vp[dim + (pi, pj, p)] = 1
+                        Vpp[dim + (pi, pj, p)] = 1
                         # We live cp[(dim + (pi, pj)] as zero
                         # as we want the ne generator to fully
                         # control the value 
@@ -203,12 +268,12 @@ class MaxPool2d(torch.nn.Module):
                         c = c_counter
                         c_counter += len(max_candidates) + 1
                         for pred_i, (xp, yp) in enumerate(max_candidates):
-                            A_ub[c + pred_i, c] = -1
+                            A_ub[c + pred_i, p] = -1
                             A_ub[c + pred_i, n_new_predicates:] = Vi[xp, yp]
                             b_ub[c + pred_i] = -ci[xp, yp]
-                            assert c  < n_new_predicates
+                            assert p < n_new_predicates
 
-                        A_ub[c + len(max_candidates), c] = 1
+                        A_ub[c + len(max_candidates), p] = 1
                         b_ub[c + len(max_candidates)] = max(max_values)
                         
 
