@@ -2,3 +2,10 @@
 2. If an over-approximation adds more than that amount an area, add appropiate set splits
 3. Add cheap better over-approximations to non-linear functions by adding a line tangent to the average slope.
 4. Keep track of added over-approximation sets, and propogate those outwards too. Now, we can use these to check if a counter-example is from an over-approximated set.
+5. Keep track of which dimension each constraint controls. Remove constraints that are no longer needed because their dimension is always 0
+ReLU 0's out dimension N
+Remove any constraints that ONLY control dimension N
+Same logic for sigmoid
+
+When doing a linear transformation, see if it's possible to collapse constraints if we transform to a lower-dimensional space
+
